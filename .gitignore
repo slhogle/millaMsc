@@ -1,3 +1,13 @@
+README.html
+#data_raw/**
+#data/IC50/20221010_logphase_amp_anc_evo/**
+_wip/**
+_notrack/**
+_rendered/**
+_presentations/**
+_quarto.yml
+/.quarto/
+
 # History files
 .Rhistory
 .Rapp.history
