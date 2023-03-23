@@ -2,8 +2,8 @@ library(here)
 library(tidyverse)
 source(here::here("R", "utils_generic.R"))
 
-untar(tarfile="data_raw/amplicon/bbmap_rpkm.tar.gz", 
-      exdir="data_raw/amplicon")
+untar(tarfile=here::here("data_raw", "amplicon", "bbmap_rpkm.tar.gz"), 
+      exdir=here::here("data_raw", "amplicon"))
 
 mapdir <- here::here("data_raw", "amplicon", "bbmap_rpkm")
 filenames <- list.files(mapdir, full.names = TRUE, pattern = "*.rpkm")

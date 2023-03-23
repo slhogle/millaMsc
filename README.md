@@ -4,7 +4,7 @@ The goal of this project is to better understand bacterial coexistence and domin
 
 This GitHub repository hosts the code and data for this project.
 
-Head over to the [wiki](https://github.com/slhogle/millMsc/wiki) for additional details and some analysis walkthroughs
+Head over to the [wiki](https://github.com/slhogle/millaMsc/wiki) for additional details and some analysis walkthroughs
 
 ## Project directory structure
 1. `/data` contains data that has been processed in some way for later use

@@ -1,0 +1,95 @@
+---
+title: "01_format_rpkm"
+format: gfm
+output-dir: _rendered
+df-print: kable
+---
+
+## Last updated: 2023-03-22
+
+Raw R code for this script is available from [`/R/amplicon/01_format_rpkm_tab.R`](blob/main/R/amplicon/01_format_rpkm_tab.R)
+
+## Load required packages
+
+Sourcing `utils_generic.R` brings the functions contained in that script into your working environment. It contains generic helper functions that I find to be useful in many of my scripts.
+```{r}
+library(here)
+library(tidyverse)
+source(here::here("R", "utils_generic.R"))
+```
+
+## Decompress tar file containing amplicon counts
+This command unpacks the file at `data_raw/amplicon/bbmap_rpkm.tar.gz`
+to `data_raw/amplicon`
+```{r}
+untar(tarfile=here::here("data_raw", "amplicon", "bbmap_rpkm.tar.gz"), 
+        exdir=here::here("data_raw", "amplicon"))
+```
+
+## Get file names  
+The resulting directory has lots of different files all in the same format. We will take advantage of this shared format to read all the files in at once using vectorized function. First we need the file names
+```{r}
+mapdir    <- here::here("data_raw", "amplicon", "bbmap_rpkm")
+filenames <- list.files(mapdir, full.names = TRUE, pattern = "*.rpkm")
+
+files <- set_names(filenames, 
+                   str_extract(filenames,
+                     regex("(?<=[/])([^/]+)(?=\\.[^.]+)")
+                   ))
+
+head(files)
+```
+
+## Read iles
+This command reads the files from above into a combined dataframe. It creates a new variable `sample` with the corresponding name from the `files` vector above. Then we join the Species number to their taxonomy, and select 5 columns
+```{r}
+counts <- map_dfr(
+  files,
+  read_tsv,
+  comment = "#",
+  col_names = c(
+    "strainID",
+    "Length",
+    "Bases",
+    "Coverage",
+    "count",
+    "RPKM",
+    "Frags",
+    "FPKM"
+  ),
+  .id = "sample"
+) |>
+  left_join(tax, by = join_by(strainID)) |>
+  select(sample, strainID, genus, species, count)
+
+glimpse(counts)
+```
+
+## Format resulting data frame
+Certain statistical tools require matrix of counts in so-called "wide" format. This command transforms the counts dataframe into the wide format
+```{r}
+counts_wide <- counts |>
+  # build group index
+  group_by_at(vars(-count)) |>
+  mutate(row_id = 1:n()) |> 
+  ungroup() |>
+  pivot_wider(names_from = sample, values_from = count) |> 
+  # drop the index
+  select(-row_id) |> 
+  drop_na()
+
+glimpse(counts_wide)
+```
+
+## Write data for later
+```{r}
+write_tsv(counts, here("data", "amplicon", "species_counts.tsv"))
+write_tsv(counts_wide, here("data", "amplicon", "species_counts_wide.tsv"))
+```
+
+## Clean up
+This deletes the unpacked directory at `bbmap_rpkm` leaving only the tar file
+```{r}
+unlink("data_raw/amplicon/bbmap_rpkm", recursive = T)
+```
+

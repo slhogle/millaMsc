@@ -1,0 +1,180 @@
+---
+title: "03 Species Composition Analysis and Plotting"
+format: gfm
+df-print: kable
+---
+
+## Last updated: 2023-03-23
+
+Raw R code for this script is available from [`/R/amplicon/03_sp_composition_plot.R`](../blob/main/R/amplicon/03_sp_composition_plot.R)
+
+## Load required packages
+```{r}
+library(here)
+library(tidyverse)
+library(Polychrome)
+library(withr)
+```
+
+## Read data
+We will read in the amplicon count data that we processed and calibrated in steps 1 + 2. 
+
+```{r}
+counts <- read_tsv(here::here("data", "amplicon", "corrected_species_counts.tsv")) |>
+  # replace dash in strainID w/ underscore because it plays nicer w/ R
+  mutate(strainID = str_replace(strainID, "-", "_"))
+metadf <- read_tsv(here::here("data", "amplicon", "amplicon_metadata.tsv")) 
+```
+
+## Format data
+Now we join the separate metadata and counts files into a single dataframe and make some new labels for the treatment level which we will use later for plotting
+
+```{r}
+counts_f <- left_join(metadf, counts) |>
+  filter(!is.na(strainID)) |>
+  mutate(treatment = factor(
+    treatment,
+    levels = c("bact", "bact_strep"),
+    labels = c(
+      "Bacteria alone",
+      "Bacteria + streptomycin")
+  ))
+```
+
+I like to plot strains in order of overall relative abundance so that in the figure legend strains decrease in overall abundance and it makes for nicer stacked area plots. To do this I manually order the strains as below:
+```{r}
+strain.order <- counts_f %>%
+  group_by(strainID) %>%
+  summarize(tot=mean(f_correct)) %>%
+  arrange(tot) %>%
+  # pull converts a tibble dataframe to a vector
+  pull(strainID)
+```
+
+Now we'll set up our color palette
+```{r}
+with_seed(234523,
+          firstpal <- unname(createPalette(23, c("#F3874AFF", "#FCD125FF"), M=5000)))
+
+names(firstpal) <- strain.order
+
+swatch(firstpal)
+```
+## Area plot
+I like plotting with `ggplot` because it is quite convenient, but I personally don't like the default aesthetics. So I usually make my own. The `myartheme()` function below simply allows you to pass these parameters on to your plot without a lot of cluttered code. You of course can choose to plot figures how ever you like!
+
+```{r}
+myartheme <- function(...){
+  theme_bw() + theme(
+    panel.spacing.x = unit(0.25,"line"),
+    strip.placement = 'outside',
+    strip.background = element_blank(),
+    panel.grid = element_blank(),
+    panel.border = element_blank(),
+    panel.background = element_blank(),
+    #axis.text.x = element_blank(),
+    axis.line.x = element_line(color = "black"),
+    axis.line.y = element_line(color = "black"),
+    legend.title = element_blank(),
+    legend.position="bottom",
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    ...)
+}
+```
+
+
+```{r}
+area_plot <- counts_f |>
+  mutate(strainID=factor(strainID, levels=strain.order)) |>
+  ggplot() +
+  geom_area(aes(x=week, y=f_correct, fill=strainID),
+            color="black", size=0.1) +
+  facet_grid(treatment ~ replicate) +
+  scale_fill_manual(values = firstpal, ) + 
+  scale_y_continuous(limits = c(0,1), expand = c(0, 0), labels = scales::percent) +
+  scale_x_continuous(limits = c(0,80), breaks = c(0, 20, 40, 60, 80)) +
+  labs(x="Sampling time (weeks)", y="Species abundance", fill="", title="") + 
+  myartheme()
+
+area_plot
+```
+
+Save figure for later if needed
+```{r}
+#| echo: true
+#| eval: false
+ggsave(
+  here::here("figs", "amplicon", "species_comp_area.svg"),
+  area_plot,
+  width = 13,
+  height = 7,
+  units = "in",
+  device = "svg"
+)
+```
+
+## 1287 and 1977 Frequency plot
+Since we are focusing on 1287 and 1977 for the main experiment, it could be nice to focus just on 1287 and 1977 in a plot like we made above. I'll leave this up to you!
+
+## Alpha diversity
+> In ecology, alpha diversity ($\alpha$-diversity) is the mean species diversity in a site at a local scale [wikipedia](https://en.wikipedia.org/wiki/Alpha_diversity). 
+>
+> Species diversity is the number of different species that are represented in a given community (a dataset) [wikipedia](https://en.wikipedia.org/wiki/Species_diversity). Meanings of species diversity may include species richness, taxonomic or phylogenetic diversity, and/or species evenness.
+
+Two common diversity indexes used in microbiome studies are species richness and the Shannon index. Species richness is simply defined as the number of observed species in each sample. So if we observe all HAMBI species in a sample the richness is 23. If the sample is devoid of life the richness is 0.
+
+The Shannon index is simply defined as 
+$$
+H^{\prime} = - \sum_{i=1}^{Sobs} p_{i} \times \log p_{i}
+$$
+Where $p_{i}$ is the proportion of $species i$ in each sample. Let's calculate these diversity indexes and plot them over time. If the diversity doesn't change much over time it can be interpreted that the community is in a stable state or equilibrium.
+
+Here we define our own functions for diversity
+```{r}
+richness <- function(count_vec){
+  sum(count_vec > 0)
+}
+
+shannon <- function(f){
+  # log of zero is undefined
+  -sum(f[f>0] * log(f[f>0]))
+}
+```
+
+Calculate diversity
+```{r}
+diversity <- counts_f |>
+  group_by(sample) |>
+  summarize(richness = richness(count_correct),
+            shannon = shannon(f_correct)) |>
+  ungroup() |>
+  left_join(metadf)
+```
+
+
+Plot alpha diversity
+
+```{r}
+diversity |>
+  # to get alpha and shannon into 'long' format
+  pivot_longer(cols = c("richness", "shannon"), names_to="index_name", values_to="index_val") |>
+  mutate(treatment = factor(
+    treatment,
+    levels = c("bact", "bact_strep"),
+    labels = c(
+      "Bacteria alone",
+      "Bacteria + streptomycin")
+  )) |>
+  ggplot() +
+  geom_line(aes(x=week, y=index_val, group=interaction(index_name, treatment, replicate))) +
+  geom_point(aes(x=week, y=index_val)) +
+  facet_grid(index_name ~ treatment, scales="free") +
+  labs(x="Sampling time (weeks)", y="Diversity", fill="", title="") + 
+  myartheme()
+```
+
+The richness data looks a bit strange because it is discrete and in the vast majority of samples hovers around 18 or 19. The Shannon diversity tells us a bit more. There are three patterns evident - first, on average diversity seems quite stable through time in all treatments. There are no wild oscillations in species frequencies which we observed with the area plot. It seems reasonable to assume that these communities are in some kind of stable equilibrium. Second, Shannon diversity seems on average higher in the Bacteria only treatment (this could be tested using a simple anova for example, but it is an exercise left to the reader). Third, Shannon diversity seems more stable (a smaller relative standard deviation) in the Bacteria only treatment where as with streptomycin it starts off relatively low but seems to gradually climb through time. Again this could be tested using relatively simple statistics.
+
+Finally, it is worth noting that we sequenced samples from every week from week 73-79 which is apparent in some of the higher frequency oscillations occurring there. For technical reasons out of our control, these samples were also sequenced a bit more deeply and so we observe all 23 species present in some of them. Probably all 23 species were present in all the other samples, but we can't observe them if we don't sequence deeply enough.
+
